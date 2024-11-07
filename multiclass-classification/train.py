@@ -22,6 +22,7 @@ if device_name != '/device:GPU:0':
 else:
     print('Found GPU at: {}'.format(device_name))
 
+# Argument Parser
 parser = argparse.ArgumentParser(description="Classification")
 
 # Fixed Variables
@@ -38,15 +39,12 @@ parser.add_argument('--training_epoch', type=int, default=50, help='Number of tr
 parser.add_argument('--training_learning_rate', type=float, default=0.0001, help='Learning rate for training')
 parser.add_argument('--training_optimizer', type=str, default='Adam', help='Optimizer for Training')
 
-
 # Array arguments
 parser.add_argument('--training_metrics', type=str, nargs='+', default=['accuracy'], help='Metrics for training (e.g., "accuracy", "precision")')
 parser.add_argument('--classifier_list', type=str, nargs='+', default=["GlobalAveragePooling2D()", "Dense(1024, activation='relu')", "Dense(512, activation='relu')", "Dense(number_of_classes, activation='softmax')"], help='List of classifier layers')
 
 # Parse arguments
 args = parser.parse_args()
-
-import os
 
 # Assuming args.results_path is the root path where you want to save all files
 training_model_save_path = os.path.join(args.results_path, 'model.keras')
@@ -57,6 +55,10 @@ training_roc_curve_save_path = os.path.join(args.results_path, 'roc_curve.png')
 
 
 def get_backbone(args, img_height, img_width):
+    """
+    Get the backbone model based on user input.
+    """
+    print("Getting backbone model...")
     backbone_dict = {
         'ConvNeXtBase': tf.keras.applications.ConvNeXtBase,
         'ConvNeXtLarge': tf.keras.applications.ConvNeXtLarge,
@@ -100,6 +102,7 @@ def get_backbone(args, img_height, img_width):
         'Xception': tf.keras.applications.Xception,
     }
     
+    print(f"Selected backbone: {args.backbone}")
     # Get the model class from the dictionary, or raise an error if not found
     backbone_class = backbone_dict.get(args.backbone)
     if not backbone_class:
@@ -108,7 +111,12 @@ def get_backbone(args, img_height, img_width):
     # Initialize and return the model with specified parameters
     return backbone_class(include_top=False, weights="imagenet", input_shape=(img_height, img_width, 3))
 
+
 def get_optimizer(args):
+    """
+    Get the optimizer based on user input.
+    """
+    print("Getting optimizer...")
     optimizer_dict = {
         'SGD': tf.keras.optimizers.SGD,
         'RMSprop': tf.keras.optimizers.RMSprop,
@@ -129,6 +137,7 @@ def get_optimizer(args):
     # Initialize and return the optimizer with a specified learning rate
     return optimizer_class(learning_rate=args.training_learning_rate)
 
+
 training_loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False)
 
 training_callbacks = [
@@ -137,60 +146,38 @@ training_callbacks = [
 ]
 
 def generates_dataset(dataset_path, batch_size, img_height, img_width):
-  """
-    Generates TensorFlow datasets for training, validation and testing from a directory.
+    """
+    Generates TensorFlow datasets for training, validation, and testing from a directory.
+    """
+    print("Generating datasets from the directory...")
+    # Create train dataset
+    train_dataset = tf.keras.preprocessing.image_dataset_from_directory(
+        directory=f'{dataset_path}/train',
+        image_size=(img_height, img_width),
+        batch_size=batch_size,
+    )
 
-    Args:
-    - dataset_path (str): Path to the directory containing the dataset.
-    - batch_size (int): Batch size for the datasets.
-    - img_height (int): Height of the images in the datasets.
-    - img_width (int): Width of the images in the datasets.
+    # Create validation dataset
+    validation_dataset = tf.keras.preprocessing.image_dataset_from_directory(
+        directory=f'{dataset_path}/validation',
+        image_size=(img_height, img_width),
+        batch_size=batch_size,
+    )
 
-    Returns:
-    - train_dataset (tf.data.Dataset): TensorFlow dataset for training.
-    - validation_dataset (tf.data.Dataset): TensorFlow dataset for validation.
-    - test_dataset (tf.data.Dataset): TensorFlow dataset for testing.
+    # Create test dataset
+    test_dataset = tf.keras.preprocessing.image_dataset_from_directory(
+        directory=f'{dataset_path}/test',
+        image_size=(img_height, img_width),
+        batch_size=batch_size,
+    )
 
-    This function creates TensorFlow datasets for training validation and testing from a directory containing image data.
-  """
-
-  # Create train dataset
-  train_dataset = tf.keras.preprocessing.image_dataset_from_directory(
-      directory=f'{dataset_path}/train',
-      image_size=(img_height, img_width),
-      batch_size=batch_size,
-  )
-
-  # Create validation dataset
-  validation_dataset = tf.keras.preprocessing.image_dataset_from_directory(
-      directory=f'{dataset_path}/validation',
-      image_size=(img_height, img_width),
-      batch_size=batch_size,
-  )
-
-  # Create test dataset
-  test_dataset = tf.keras.preprocessing.image_dataset_from_directory(
-      directory=f'{dataset_path}/test',
-      image_size=(img_height, img_width),
-      batch_size=batch_size,
-  )
-
-  return train_dataset, validation_dataset, test_dataset
+    return train_dataset, validation_dataset, test_dataset
 
 def generate_model(pretrained_model, classifier_list, number_of_classes):
     """
     Generates a new model by adding custom classification layers on top of a pre-trained model.
-
-    Args:
-    - pretrained_model (tf.keras.Model): Pre-trained model to use as a base.
-    - classifier_list (list of str): List of custom classifier layers in string format.
-    - number_of_classes (int): Number of classes for classification.
-
-    Returns:
-    - model (tf.keras.Model): Newly generated model with custom classification layers.
-    
-    This function takes a pre-trained model and adds custom classification layers on top.
     """
+    print("Generating model with custom classifier layers...")
     # Freeze the base model layers
     for layer in pretrained_model.layers:
         layer.trainable = False
@@ -200,64 +187,13 @@ def generate_model(pretrained_model, classifier_list, number_of_classes):
     for layer_str in classifier_list:
         # Replace 'number_of_classes' with the actual value in the string if present
         layer_str = layer_str.replace("number_of_classes", str(number_of_classes))
-        
-        # Use eval to dynamically create the layer
-        layer = eval(f"tf.keras.layers.{layer_str}")
-        x = layer(x)
+        # Convert the string into actual layer objects and apply
+        x = eval(f"tf.keras.layers.{layer_str}")(x)
+    
+    # Final model with classifier layers
+    model = tf.keras.Model(inputs=pretrained_model.input, outputs=x)
 
-    # Create the final model
-    model = tf.keras.models.Model(inputs=pretrained_model.input, outputs=x)
     return model
-
-def train(model, epochs, learning_rate, loss, optimizer, metrics, callbacks, train_ds, validation_ds, model_save_path, history_save_path):
-    """
-    Trains a TensorFlow or Keras model on training and validation datasets.
-
-    Args:
-    - model (tf.keras.Model): TensorFlow or Keras model to train.
-    - epochs (int): Number of epochs for training.
-    - learning_rate (float): Learning rate for the optimizer.
-    - loss (tf.keras.losses.Loss): Loss function to optimize.
-    - optimizer (tf.keras.optimizers.Optimizer): Optimizer to use during training.
-    - metrics (list): List of metrics to evaluate during training.
-    - callbacks (list): List of callbacks to apply during training.
-    - train_ds (tf.data.Dataset): TensorFlow dataset for training.
-    - validation_ds (tf.data.Dataset): TensorFlow dataset for validation.
-    - model_save_path (str): File path to save the trained model weights.
-    - history_save_path (str): File path to save the training history as a CSV file.
-
-    Returns:
-    - history (tf.keras.callbacks.History): Training history containing loss and metrics.
-
-    This function compiles and trains a TensorFlow or Keras model on the specified training and validation datasets.
-    It compiles the model with the specified optimizer, loss function, and metrics, then trains the model for the
-    specified number of epochs. Training progress is monitored using the provided callbacks. After training, the
-    training history is saved as a CSV file and the trained model weights are loaded from the specified file path.
-    The training history is returned for further analysis or visualization.
-    """
-    # Compile the model
-    model.compile(
-        optimizer=optimizer,
-        loss=loss,
-        metrics=metrics
-    )
-
-    # Train the model
-    history = model.fit(
-        train_ds,
-        validation_data=validation_ds,
-        epochs=epochs,
-        callbacks=callbacks
-    )
-
-    # Save training history to CSV file
-    history_df = pd.DataFrame(history.history)
-    history_df.to_csv(history_save_path, index=False)
-
-    # Load best model weights
-    model = load_model(model_save_path)
-
-    return history
 
 def plot_history(history, save_path):
     """
@@ -352,7 +288,7 @@ def plot_roc_curve(model, test_dataset, class_names, save_path):
     This function takes a TensorFlow or Keras model, a TensorFlow dataset containing test images and labels,
     and a list of class names, and plots the ROC curve for the model's predictions. It computes the ROC curve
     and ROC area for each class, providing insights into the model's performance across different classes.
-    Also saves the ROC data to a CSV file. and saves the plot as an image.
+    Also saves the plot as an image.
     """
     y_true = []
     y_scores = []
@@ -382,44 +318,59 @@ def plot_roc_curve(model, test_dataset, class_names, save_path):
     plt.legend(loc="lower right")
     plt.savefig(save_path)
 
-# Call the functions
-train_ds, validation_ds, test_ds = generates_dataset(args.dataset_path, args.batch_size, img_height, img_width)
+# Main
+def main():
+    print("Starting the process...")
 
-class_names = test_ds.class_names
+    # Load and print backbone model
+    pretrained_model = get_backbone(args, img_height, img_width)
+    
+    # Generate datasets
+    train_dataset, validation_dataset, test_dataset = generates_dataset(args.dataset_path, args.batch_size, img_height, img_width)
 
-training_optimizer = get_optimizer(args)
+    # Generate model
+    model = generate_model(pretrained_model, args.classifier_list, args.number_of_classes)
 
-backbone = get_backbone(args, img_height, img_width)
+    # Compile model
+    model.compile(
+        optimizer=get_optimizer(args),
+        loss=training_loss,
+        metrics=args.training_metrics
+    )
 
-model = generate_model(backbone, args.classifier_list, args.number_of_classes)
+    # Train model
+    print("Training the model...")
+    history = model.fit(
+        train_dataset,
+        epochs=args.training_epoch,
+        validation_data=validation_dataset,
+        callbacks=training_callbacks
+    )
 
-model.summary()
+    # Save training history to CSV
+    print("Saving training history...")
+    pd.DataFrame(history.history).to_csv(training_history_save_path)
 
-training_history = train(model,
-                args.training_epoch,
-                args.training_learning_rate,
-                training_loss,
-                training_optimizer,
-                args.training_metrics,
-                training_callbacks,
-                train_ds,
-                validation_ds,
-                training_model_save_path,
-                training_history_save_path)
+    # Plot training history
+    print("Plotting training history...")
+    plot_history(history, training_history_plot_save_path)
 
-print("Test Results")
-test_res = model.evaluate(test_ds, return_dict=True)
-print("Test Results", test_res)
+    # Evaluate on test set
+    print("Evaluating the model on the test set...")
+    test_loss, test_accuracy = model.evaluate(test_dataset)
+    print(f"Test Accuracy: {test_accuracy * 100:.2f}%")
 
-print("Plotting History")
-plot_history(training_history, training_history_plot_save_path)
+    # Confusion Matrix
+    print("Generating confusion matrix...")
+    plot_confusion_matrix(test_dataset, model, class_names=train_dataset.class_names, save_path=training_confusion_matrix_save_path)
 
-print("Plotting Confusion Matrix")
-training_confusion_matrix = plot_confusion_matrix(test_ds, model, class_names, training_confusion_matrix_save_path)
+    # ROC Curve
+    print("Generating ROC curve...")
+    # You can implement the ROC curve here, using the previously shown code example.
+    plot_roc_curve(model, test_dataset, train_dataset.class_names, training_roc_curve_save_path)
 
-print("Plotting ROC Curve")
-plot_roc_curve(model, test_ds, class_names, training_roc_curve_save_path)
+    print("Process completed.")
 
-
-
-
+# Call the main function to start the process
+if __name__ == '__main__':
+    main()
