@@ -3,4 +3,4 @@
 This repository contains Python script for training a binary and multiclass classification model using transfer learning. 
 
 - Binary Classification
-- [Multiclass Classification](multiclass-classification/README.md)
+- [Multiclass Classification](multiclass-classification)
